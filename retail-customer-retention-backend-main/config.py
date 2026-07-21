@@ -32,3 +32,9 @@ SCORING_SERVICE_URL = os.environ.get("SCORING_SERVICE_URL", "http://localhost:80
 # Whether exit-risk uses the Fabric-enriched agent. This is only the startup
 # default; the live value is a runtime toggle flipped via the backend.
 FABRIC_ENRICHMENT_ENABLED = os.environ.get("FABRIC_ENRICHMENT_ENABLED", "false").lower() == "true"
+
+# Optional shared key protecting the operational endpoints (/debug,
+# /test-signal, POST /enrichment, DELETE /churn-score). Unset = endpoints stay
+# open (fine for local dev). Set it on any internet-reachable deployment and
+# send it as the X-Admin-Key header.
+ADMIN_API_KEY = os.environ.get("ADMIN_API_KEY", "")

@@ -7,6 +7,11 @@ import { NextResponse } from "next/server";
 // so the next exit-risk triggers a fresh, live Fabric scoring call.
 const BACKEND = process.env.RETENTION_BACKEND_URL;
 
+// Optional shared key for the backend's protected endpoints. Stays server-side
+// (this is a route handler), never shipped to the browser.
+const ADMIN_KEY = process.env.ADMIN_API_KEY;
+const adminHeaders = ADMIN_KEY ? { "X-Admin-Key": ADMIN_KEY } : {};
+
 // Report the backend's current enrichment state so the UI toggle can reflect
 // reality on mount (persists across page navigation and reloads this way).
 export async function GET() {
@@ -54,6 +59,7 @@ export async function POST(request) {
   try {
     const enrichRes = await fetch(`${BACKEND}/enrichment/${state}`, {
       method: "POST",
+      headers: adminHeaders,
     });
     const enrich = await enrichRes.json().catch(() => ({}));
 
@@ -61,6 +67,7 @@ export async function POST(request) {
     if (state === "on" && uid) {
       const clrRes = await fetch(`${BACKEND}/churn-score/${uid}`, {
         method: "DELETE",
+        headers: adminHeaders,
       });
       cleared = await clrRes.json().catch(() => ({}));
     }

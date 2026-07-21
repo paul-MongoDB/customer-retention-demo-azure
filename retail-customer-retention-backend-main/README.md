@@ -155,6 +155,15 @@ This starts the change stream watcher thread and the FastAPI server. Endpoints
 include `/health`, `/debug`, `/test-signal/{type}`, `GET /enrichment`,
 `POST /enrichment/{state}`, and `DELETE /churn-score/{uid}`.
 
+If `ADMIN_API_KEY` is set, every endpoint above except `/health` and
+`GET /enrichment` requires a matching `X-Admin-Key` header. Leave it unset for
+local development; set it (and the same variable in the storefront's env, for
+the enrichment proxy) on any deployment reachable from the internet:
+
+```bash
+curl -X POST -H "X-Admin-Key: $ADMIN_API_KEY" "$BACKEND/enrichment/on"
+```
+
 **Local ports (keep them distinct):** storefront 8080, this backend 8000
 (`PORT=8000`), scoring gateway 8081 (`PORT=8081`). Set the storefront's
 `RETENTION_BACKEND_URL=http://localhost:8000` to reach this backend.
