@@ -1,0 +1,147 @@
+{
+  "name": "asp2_cart_abandonment",
+  "pipeline": [
+    {
+    "$source": {
+      "coll": "events_ingest",
+      "config": {
+        "fullDocument": "updateLookup"
+      },
+      "connectionName": "retail_customer_retention",
+      "db": "leafy_popup_store",
+      "timeField": "$fullDocument.timestamp"
+    }
+  },
+  {
+    "$replaceRoot": {
+      "newRoot": "$fullDocument"
+    }
+  },
+  {
+    "$match": {
+      "timestamp": {
+        "$type": "date"
+      },
+      "tags.sessionId": {
+        "$type": "string"
+      },
+      "tags.userId": {
+        "$type": "string"
+      }
+    }
+  },
+  {
+    "$tumblingWindow": {
+      "allowedLateness": 0,
+      "boundary": "eventTime",
+      "idleTimeout": 0,
+      "interval": {
+        "size": 30,
+        "unit": "second"
+      },
+      "pipeline": [
+        {
+          "$group": {
+            "_id": "$tags.sessionId",
+            "sid": {
+              "$first": "$tags.sessionId"
+            },
+            "uid": {
+              "$first": "$tags.userId"
+            },
+            "viewCartCount": {
+              "$sum": {
+                "$cond": [
+                  {
+                    "$eq": [
+                      "$tags.event",
+                      "view-cart"
+                    ]
+                  },
+                  1,
+                  0
+                ]
+              }
+            },
+            "maxItemCount": {
+              "$max": {
+                "$cond": [
+                  {
+                    "$eq": [
+                      "$tags.event",
+                      "view-cart"
+                    ]
+                  },
+                  "$metadata.itemCount",
+                  0
+                ]
+              }
+            },
+            "lastTs": {
+              "$max": "$timestamp"
+            }
+          }
+        },
+        {
+          "$project": {
+            "_id": 0,
+            "signalDoc": {
+              "$function": {
+                "args": [
+                  "$sid",
+                  "$uid",
+                  "$viewCartCount",
+                  "$maxItemCount",
+                  "$lastTs"
+                ],
+                "body": "function(sid, uid, viewCartCount, maxItemCount, lastTs){\n  var n = (typeof viewCartCount === 'number') ? viewCartCount : 0;\n  if (n <= 0) return null;\n\n  var items = (typeof maxItemCount === 'number' && maxItemCount > 0) ? maxItemCount : 1;\n\n  var severity = 'low';\n  if (items === 2) severity = 'medium';\n  if (items >= 3) severity = 'high';\n\n  var evidence = 'Customer is dwelling on a cart with ' + items + ' item(s) and has not checked out in the last 30 seconds.';\n\n  var t = lastTs ? new Date(lastTs) : new Date();\n  var bucket = Math.floor(t.getTime() / 30000);\n\n  return { _id: String(sid) + ':cartabandon:' + bucket, sid: sid, uid: uid, signal: 'cart-abandonment', severity: severity, evidence: evidence, _tsFallback: t };\n}",
+                "lang": "js"
+              }
+            }
+          }
+        },
+        {
+          "$match": {
+            "signalDoc": {
+              "$ne": null
+            }
+          }
+        },
+        {
+          "$replaceRoot": {
+            "newRoot": "$signalDoc"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "$addFields": {
+      "ts": {
+        "$ifNull": [
+          "$_stream_meta.window.end",
+          "$_tsFallback"
+        ]
+      }
+    }
+  },
+  {
+    "$unset": [
+      "_tsFallback",
+      "_stream_meta"
+    ]
+  },
+  {
+    "$merge": {
+      "into": {
+        "coll": "session_signals",
+        "connectionName": "retail_customer_retention",
+        "db": "leafy_popup_store"
+      },
+      "on": "_id",
+      "whenMatched": "keepExisting",
+      "whenNotMatched": "insert"
+    }
+  }
+  ]
+}

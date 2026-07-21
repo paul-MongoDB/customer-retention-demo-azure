@@ -1,0 +1,200 @@
+# Retail store buying experience
+
+> **Part of the MongoDB + Azure + Fabric customer retention demo.** For the full
+> end-to-end setup (Atlas, backend, scoring, Fabric), start with the
+> [repository README](../README.md). This document covers the storefront and its
+> individual features.
+
+## Quick start (storefront only)
+
+```bash
+npm install
+cp EXAMPLE.env.local .env.local   # then fill in MONGODB_URI, VOYAGE_API_KEY, RETENTION_BACKEND_URL
+npm run dev                        # serves on http://localhost:8080
+```
+
+Then open the retention demo at:
+
+```
+http://localhost:8080/shop?feature=customerRetention
+```
+
+The `?feature=customerRetention` flag is required. Without it you get the plain
+storefront with no retention panels, signals, or offers. The flag is sticky once
+set for the session.
+
+Before the retention flows work you also need the data seeded and the retention
+backend running. See the [repository README](../README.md) for the full sequence.
+
+## Table of Contents
+<details>
+  <ol>
+    <li><a href="#abstract">Abstract</a></li>
+    <li><a href="#overview">Overview</a></li>
+    <li>
+        <a href="#features">Features</a>
+        <ol>
+            <li><a href="#agentic-rag-chatbot-with-dataworkz">Agentic RAG Chatbot (with Dataworkz)</a></li>
+            <li><a href="#omnichannel-ordering-solution">Omnichannel Ordering Solution</a> </li>
+            <li><a href="#personalized-recommendations-from-digital-receipts">Personalized recommendations from digital receipts</a></li>
+            <li><a href="#complex-event-processing-cep-for-customer-retention">Complex event processing (CEP) for customer retention</a></li>
+        </ol>
+    </li>
+    <li><a href="#authors-&-contributors">Authors & Contributors</a></li>
+    </ol>
+</details>
+
+## Abstract
+
+This repository contains a MongoDB-powered retail store demo designed to illustrate how MongoDB can enhance the modern e-commerce experience and can be easilly be integrated with modern technologies to enhance the shopping experience for the customer. The demo highlights various features that serve as a reference architecture for developers looking to integrate MongoDB into retail solutions.
+
+Built with modern technologies, this demo is continuously evolving with new features added over time. Some features are developed in collaboration with [MongoDB partners](https://cloud.mongodb.com/ecosystem/) to create cutting-edge, scalable e-commerce solutions.
+
+This README will guide you through the steps and prerequisites needed to replicate the demo in your own environment. Since some features require third-party services or specific configurations, the README is organized to help you focus on the features that interest you most. Each feature has its own dedicated section to guide you through the setup process, ensuring a smooth and streamlined experience.
+
+## Overview
+
+In today's retail landscape, customers expect not just products, but exceptional service experiences. It's more important than ever for brands to connect with customers in meaningful, personalized ways - providing relevant recommendations, instant support, and unique experiences that feel tailored just for them.
+
+Modern retail customers expect:
+- **Immediate responses** to support queries 24/7
+- **Contextual understanding** of their purchase history and preferences
+- **Consistent information** across all touchpoints
+- **Intelligent assistance** that understands complex questions
+- **Personalized recommendations** based on their unique needs
+
+This repository contains demos highlighting key features of a contemporary retail environment, with special focus on how MongoDB optimizes data management and enhances system performance as well as its easiness to integrate with AI-powered technologies such as the Agentic RAG chatbot integration.
+
+## Prerequisites
+
+Let’s get started! To follow along smoothly and run this demo in your own environment, make sure you have the following tools: 
+
+- MongoDB Atlas Account. Create an Atlas account at https://cloud.mongodb.com
+- Install Node. This will be required to install the node modules which contain all the necessary packages to run our demo. 
+- Install Git. This will be required to clone the demo repository.
+
+Depending on the feature or features you wish to run you might need additional instals. 
+
+## Features
+
+### Agentic RAG Chatbot (with Dataworkz)
+
+MongoDB's flexible document model provides the ideal foundation, storing rich operational data that seamlessly connects with [Dataworkz's](https://dataworkz.com) Agentic RAG capabilities, demonstrating how modern retail environments can deliver superior customer experiences through intelligent data orchestration.
+
+This showcase features an Agentic RAG chatbot that intelligently navigates between operational data and support documentation to deliver comprehensive customer assistance. The solution leverages Dataworkz's Agentic RAG platform to dynamically:
+
+- Access real-time order, inventory, and customer data from MongoDB's operational database
+- Reference policies and procedures from support documentation
+- Intelligently determine which data sources to query based on the specific customer question
+- Synthesize information from multiple sources when needed for complete answers
+
+See the full step by step [README](.//resources/chatbot/README.md) to run this microservice from your own environment in the demo.
+
+<details>
+
+Tech Stack:
+
+- MongoDB Atlas Account
+- Dataworkz Account
+- Node
+
+Partners:
+- [Dataworkz](https://cloud.mongodb.com/ecosystem/dataworkz)
+
+</details>
+
+### Omnichannel Ordering Solution
+
+Customers expect a seamless shopping experiences that blend online and offline seamlessly. To meet these evolving needs, retailers must offer convenient options like Buy Online, Pick Up In Store (BOPIS) and home delivery. This microservice will allow you to create a new order selecting your desired shipping method. 
+
+See the full step by step [README](.//resources/omnichannel/README.md) to run this microservice from your own environment in the demo.
+
+<details>
+
+Tech Stack:
+- MongoDB Atlas Account
+- Node
+</details>
+
+### Personalized recommendations from digital receipts
+
+AI-powered product recommendations are everywhere, but we barely notice them anymore! Whether it’s in your inbox, on your favorite e-commerce sites, or streaming platforms, these recommendations are driving real impact. In fact, they account for [35% of Amazon sales and 75% of what people watch on Netflix](https://www.mckinsey.com/industries/retail/our-insights/how-retailers-can-keep-up-with-consumers).
+
+With this microservice we enable our e-commerce store to enhance the post-purchase experience for customers by:
+-  Analyzing digital receipt data to personalize product recommendations on the store’s landing page.
+- Embedding product suggestions directly in the digital receipt guaranteeing that every receipt includes a unique and relevant set of suggestions, leading to a more engaging shopping experience.
+- Allowing shoppers to download their digital receipts at any time, as often as needed. This provides customers with easy access and better organization of their expenses.
+
+
+See the full step by step [README](.//resources/digitalReceipts/README.md) to run this microservice from your own environment in the demo.
+
+<details>
+
+Tech Stack:
+
+- MongoDB Atlas Account
+- VoyageAI
+- Azure Account
+- Node
+
+Partners:
+- [Azure](https://azure.microsoft.com/)
+
+</details>
+
+
+### Complex event processing (CEP) for customer retention
+
+Customer retention is essential in the retail landscape, yet traditional analytics often fail to capture the "immediacy" of shopping behaviors. This feature demonstrates how MongoDB's real-time processing capabilities can identify customer behavior patterns and trigger proactive retention measures before customers abandon their sessions.
+
+The system captures customer behavior events during active user sessions and uses Complex Event Processing (CEP) to analyze patterns like high intent, search friction, and exit risk. A lightweight agent then generates Next Best Actions (NBAs) such as product recommendations, social proof notifications, or free delivery offers to keep customers engaged.
+
+Key capabilities include:
+- Real-time heartbeat and action-based event tracking
+- Pattern recognition through MongoDB Change Streams and Atlas Stream Processing 
+- Intelligent agent reasoning using Model Context Protocol (MCP)
+- Dynamic NBA generation based on behavioral signals
+- Seamless integration of retention actions in the user interface
+
+See the full step by step [README](./resources/customerRetention/README.md) to run this feature from your own environment in the demo.
+
+<details>
+
+Tech Stack:
+- MongoDB Atlas Account
+- Atlas Stream Processing (ASP)
+- Change Streams
+- VoyageAI
+- Model Context Protocol (MCP)
+- Node
+
+</details>
+
+
+## Authors & Contributors
+
+### Lead Authors   
+[Prashant Juttukonda](https://www.mongodb.com/blog/authors/prashant-juttukonda) - Principal
+
+[Rodrigo Leal](https://www.mongodb.com/blog/authors/rodrigo-leal) - Principal
+
+[Genevieve Broadhead](https://www.mongodb.com/blog/authors/genevieve-broadhead) - Global lead, retail solutions
+
+[Angie Guemes](https://www.mongodb.com/developer/author/angie-guemes-estrada/) – Developer & Maintainer 
+
+[Florencia Arin](https://www.mongodb.com/blog/authors/florencia-arin) – Developer & Maintainer 
+
+Rakshit Joshi – Maintainer
+
+
+### Contributors  
+This demo was made possible with the contributions of:  
+[Sachin Smotra](https://www.dataworkz.com/) – Contributed to Agentic RAC chatbot  
+[Sachin Hejip](https://www.dataworkz.com/) – Contributed to Agentic RAC chatbot  
+
+## License
+
+Licensed under the Apache License, Version 2.0. See the repository [LICENSE](../LICENSE).
+
+This repository is intended solely for demonstration and educational purposes.
+No support or warranty is provided. Use at your own risk.

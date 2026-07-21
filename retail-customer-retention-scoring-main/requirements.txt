@@ -1,0 +1,12 @@
+# Web framework & server
+fastapi
+uvicorn[standard]
+# MongoDB (read behavioral data, write churn_risk_scores)
+pymongo
+# Config
+python-dotenv
+# Featurization (the model itself runs in Fabric, not here)
+pandas
+# Microsoft Fabric ML endpoint: Entra auth + HTTP
+azure-identity
+httpx

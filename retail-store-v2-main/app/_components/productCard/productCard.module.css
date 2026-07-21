@@ -1,0 +1,129 @@
+.elasticity{
+    color: #00A35C;
+    margin-top: 5px;
+}
+
+.card{
+    width: 250px;
+    height: 370px;
+    position: relative; /* Added for fireIcon positioning */
+    /* background-color: green; */
+}
+
+.fireIcon {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    background-color: rgba(255, 255, 255, 0.9);
+    border-radius: 50%;
+    padding: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+
+.productInfo {
+    display: flex;
+    flex-direction: column;
+    align-items: center; /* Center align items vertically */
+}
+
+.productInfo img{
+    margin-bottom: 10px;
+}
+
+.cardFooter {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between; /* Subtitle will be on the left and CartAdd on the right */
+    align-items: center; /* Align items vertically */
+    padding-top: 10px;
+}
+
+.subtitle {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between; 
+    text-align: center; /* Center-align the Subtitle */
+    width: 83%;
+    /* margin-top: 8px; */
+}
+
+.cartAdd {
+    margin-left: auto; /* Push CartAdd component to the right corner */
+}
+
+.productName{
+    font-size: 16px;
+    text-align: center;
+    display: -webkit-box;
+    -webkit-line-clamp: 4; /* Maximum of 5 lines */
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    word-break: break-word; /* Ensures long words break instead of overflowing */
+}
+
+.predPrice{
+    color: #B45AF2;
+    padding-top: 10px;
+    font-weight: 600;
+    font-size: 15px;
+}
+
+/*Product Detail Modal*/
+
+.detailModal {
+ display: flex;
+}
+
+.detailInfo{
+    margin-left: 20px;
+}
+
+.detailCart{
+    margin-top: 20px;
+}
+
+.price{
+    padding-top: 20px;
+    font-size: 30px;
+    padding-bottom: 20px;
+}
+
+.quantitySection{
+    margin-top: 20px;
+}
+
+.quantityPicker{
+    border: none;
+    background-color: #E8EDEB;
+    
+}
+
+.quantity{
+    padding:10px
+}
+
+.selected-radio {
+    color: blue; /* Change color to indicate selection */
+    background-color: #00A35C;
+  }
+  .scoreContainer{
+    position: absolute;
+    top: 15px;
+    left: 10px;
+  }
+  .scorebadge{
+    box-shadow: 0 4px 14px 0px rgb(0 0 0 / 91%);
+  }
+  .scorebadge svg{
+    margin-right: 5px;
+  }
+  .imageContainer{
+    width: 200px;
+    height: 200px;
+    position: relative;
+  }

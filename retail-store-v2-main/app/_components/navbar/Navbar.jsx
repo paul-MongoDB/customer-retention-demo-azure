@@ -1,0 +1,155 @@
+"use client";
+import React, { useEffect, useCallback, useRef, useState } from "react";
+import { useSelector, useDispatch } from "react-redux";
+import { v4 as uuidv4 } from "uuid";
+import { usePathname } from "next/navigation";
+
+import Link from "next/link";
+import "./navbar.css";
+import Image from "next/image";
+import Profile from "./Profile";
+import CartButton from "./CartButton";
+import { Container } from "react-bootstrap";
+import {
+  getLastBoughtProducts,
+  handleNewRecommendationsForUser,
+} from "@/lib/helpers";
+import { setSelectedUserLastBoughtProducts } from "@/redux/slices/UserSlice";
+import { setIsDrawerOpen } from "@/redux/slices/CustomerRetentionSlice";
+import IconButton from "@leafygreen-ui/icon-button";
+import Icon from "@leafygreen-ui/icon";
+import Notifications from "./Notifications";
+
+const Navbar = () => {
+  const dispatch = useDispatch();
+  const [openMenu, setOpenMenu] = useState(''); // '' for closed, 'profile' or 'notifications' for open
+  const sseConnection = useRef(null);
+  const sessionId = useRef(uuidv4());
+  const ordersLoaded = useSelector((state) => state.User.orders?.initialLoad);
+  const userId = useSelector((state) => state.User.selectedUser?._id);
+  const openedProductDetails = useSelector((state) => state.Products.openedProductDetails);
+  const { isDrawerOpen, isCustomerRetentionEnabled } = useSelector(
+    (state) => state.CustomerRetention
+  );
+  const pathname = usePathname();
+  const featureInStore = useSelector((state) => state.Global.feature);
+
+  const listenToSSEUpdates = useCallback(() => {
+    console.log("listenToSSEUpdates func: ", userId);
+    const collection = "users";
+    const eventSource = new EventSource(
+      `/api/sse?sessionId=${sessionId.current}&colName=${collection}&_id=${userId}`
+    );
+    eventSource.onopen = () => {
+      console.log("SSE connection opened.");
+      // Save the SSE connection reference in the state
+    };
+    eventSource.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      console.log("Received SSE Update on User:", data);
+      if (data.fullDocument.version != 2) return;
+      if (data.operationType === "update")
+        handleNewRecommendationsForUser(
+          data.fullDocument.lastRecommendations || []
+        );
+    };
+    eventSource.onerror = () => {
+      // SSE connections blip on navigation/HMR/stream reopen. This is benign,
+      // so log at a quiet level to avoid tripping the Next.js dev error overlay.
+      console.debug("SSE connection interrupted (will reconnect).");
+    };
+    // Close the previous connection if it exists
+    if (sseConnection.current) {
+      sseConnection.current.close();
+      console.log("Previous SSE connection closed - dashboard.");
+    }
+
+    sseConnection.current = eventSource;
+    return eventSource;
+  }, [userId]);
+
+  useEffect(() => {
+    if (userId) {
+      const eventSource = listenToSSEUpdates();
+      return () => {
+        if (eventSource) {
+          eventSource.close();
+          console.log("SSE connection closed.");
+        }
+      };
+    }
+  }, [listenToSSEUpdates, userId]);
+
+  useEffect(() => {
+    if (userId && ordersLoaded == true) {
+      let lbp = getLastBoughtProducts(20);
+      dispatch(setSelectedUserLastBoughtProducts(lbp));
+    }
+  }, [userId, ordersLoaded]);
+
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (sseConnection.current) {
+        console.info("Closing SSE connection before unloading the page.");
+        sseConnection.current.close();
+      }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    // Clean up the event listener when the component is unmounted
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [sseConnection]);
+
+  useEffect(() => {
+    if(openedProductDetails) setOpenMenu(''); // Close any open menu when product details modal is opened
+  }, [openedProductDetails]);
+
+  return (
+    <nav className={"navbar"}>
+      <Container className="d-flex justify-content-between">
+        <div className={"logo"}>
+          <Link href={`/?feature=${featureInStore}`}>
+            <Image
+              src="/leafyLogo.png"
+              alt="MongoDB logo"
+              width={150}
+              height={40}
+            ></Image>
+          </Link>
+        </div>
+
+        <div className={"links"}>
+          <Link href={`/?feature=${featureInStore}`}>Home</Link>
+          <Link href={`/shop?feature=${featureInStore}`}>Shop</Link>
+        </div>
+        <div className={"iconButtons"}>
+          {isCustomerRetentionEnabled && (
+            <>
+              {(pathname === "/shop" || pathname === "/cart") && (
+                <IconButton
+                  className={"NavbarButtonIcon"}
+                  onClick={() => dispatch(setIsDrawerOpen(!isDrawerOpen))}
+                  aria-label="Toggle retention panel"
+                >
+                  <Icon glyph={isDrawerOpen ? "NavCollapse" : "NavExpand"} />
+                </IconButton>
+              )}
+              <Notifications 
+                isMenuOpened={openMenu === 'notifications'}
+                onToggle={() => setOpenMenu(openMenu === 'notifications' ? '' : 'notifications')}
+              />
+            </>
+          )}
+          <CartButton />
+          <Profile
+            isMenuOpened={openMenu === 'profile'}
+            onToggle={() => setOpenMenu(openMenu === 'profile' ? '' : 'profile')}
+          />
+        </div>
+      </Container>
+    </nav>
+  );
+};
+
+export default Navbar;

@@ -1,0 +1,10 @@
+# Local-only artifacts that must not bloat the ACR build context / image
+.venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+.env
+.env.*
+external/
+*.log
+.DS_Store

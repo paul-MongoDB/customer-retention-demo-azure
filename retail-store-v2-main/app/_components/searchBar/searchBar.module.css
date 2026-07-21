@@ -1,0 +1,18 @@
+.searchContainer{
+    position: relative;
+
+}
+
+.searchInputContainer{
+display: flex;
+width: 100%;
+}
+
+.searchInput{
+min-width: 680px;
+max-width: 100%;
+flex: 1;
+}
+.searchInput input{
+    font-size: 20px;
+}

@@ -1,0 +1,57 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.venv/
+venv/
+env/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local environment files
+.env
+.env.*
+!.env.example
+!.env.local.example
+!EXAMPLE.env.local
+setup-env.local.bat
+setup-env.local.sh
+
+# IDE / Editor
+.vscode/
+.idea/
+.claude/
+
+# Build / temp
+dist/
+build/
+tmp/
+*.log
+app.log
+
+# Local authoring / demo artifacts (kept locally, not published)
+CLAUDE.md
+docs/DEMO_NARRATION.md
+docs/DEMO_NARRATION_TWO_PART_NATURAL.md
+docs/DEMO_SCRIPT.md
+docs/DEMO_RUNBOOK.md
+retail-customer-retention-backend-main/demo_reset_act4.sh
+retail-customer-retention-backend-main/external/atlas-stream-processing/paul_*.json

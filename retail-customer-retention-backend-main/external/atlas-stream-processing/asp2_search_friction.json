@@ -1,0 +1,164 @@
+{
+  "name": "asp2_search_friction",
+  "pipeline": [
+    {
+    "$source": {
+      "coll": "events_ingest",
+      "config": {
+        "fullDocument": "updateLookup"
+      },
+      "connectionName": "retail_customer_retention",
+      "db": "leafy_popup_store",
+      "timeField": "$fullDocument.timestamp"
+    }
+  },
+  {
+    "$replaceRoot": {
+      "newRoot": "$fullDocument"
+    }
+  },
+  {
+    "$match": {
+      "timestamp": {
+        "$type": "date"
+      },
+      "tags.sessionId": {
+        "$type": "string"
+      },
+      "tags.userId": {
+        "$type": "string"
+      }
+    }
+  },
+  {
+    "$tumblingWindow": {
+      "allowedLateness": 0,
+      "boundary": "eventTime",
+      "idleTimeout": 0,
+      "interval": {
+        "size": 30,
+        "unit": "second"
+      },
+      "pipeline": [
+        {
+          "$group": {
+            "_id": "$tags.sessionId",
+            "sid": {
+              "$first": "$tags.sessionId"
+            },
+            "uid": {
+              "$first": "$tags.userId"
+            },
+            "lastTs": {
+              "$max": "$timestamp"
+            },
+            "cartCount": {
+              "$sum": {
+                "$cond": [
+                  {
+                    "$eq": [
+                      "$tags.event",
+                      "add-to-cart"
+                    ]
+                  },
+                  1,
+                  0
+                ]
+              }
+            },
+            "viewedProducts": {
+              "$addToSet": {
+                "$cond": [
+                  {
+                    "$in": [
+                      "$tags.event",
+                      [
+                        "view-product",
+                        "search"
+                      ]
+                    ]
+                  },
+                  "$metadata.productId",
+                  null
+                ]
+              }
+            },
+            "articleTypes": {
+              "$push": {
+                "$cond": [
+                  {
+                    "$in": [
+                      "$tags.event",
+                      [
+                        "view-product",
+                        "search"
+                      ]
+                    ]
+                  },
+                  "$metadata.articleType",
+                  null
+                ]
+              }
+            }
+          }
+        },
+        {
+          "$project": {
+            "_id": 0,
+            "signals": {
+              "$function": {
+                "args": [
+                  "$sid",
+                  "$uid",
+                  "$cartCount",
+                  "$viewedProducts",
+                  "$articleTypes",
+                  "$lastTs"
+                ],
+                "body": "function(sid, uid, cartCount, viewedProducts, articleTypes, lastTs){\n  var cart = (typeof cartCount === 'number') ? cartCount : 0;\n  if (cart > 0) return [];\n\n  var prods = (Array.isArray(viewedProducts) ? viewedProducts : []).filter(function(x){ return x != null && x !== ''; });\n  var distinct = prods.length;\n  if (distinct < 3) return [];\n\n  var severity;\n  if (distinct >= 7) severity = 'high';\n  else if (distinct >= 5) severity = 'medium';\n  else severity = 'low';\n\n  var counts = Object.create(null);\n  var topAT = null; var topN = 0;\n  var ats = Array.isArray(articleTypes) ? articleTypes : [];\n  for (var i = 0; i < ats.length; i++){\n    var a = ats[i];\n    if (a == null || a === '') continue;\n    a = String(a);\n    counts[a] = (counts[a] || 0) + 1;\n    if (counts[a] > topN){ topN = counts[a]; topAT = a; }\n  }\n\n  var evidence;\n  if (severity === 'high') evidence = 'Explored many products (' + distinct + ') in the last 30 seconds with no add-to-cart, suggesting scattered attention and difficulty converging.';\n  else if (severity === 'medium') evidence = 'Explored several products (' + distinct + ') in the last 30 seconds with no add-to-cart, suggesting choice overload.';\n  else evidence = 'Explored a few products (' + distinct + ') in the last 30 seconds with no add-to-cart, suggesting early search friction.';\n\n  var t = lastTs ? new Date(lastTs) : new Date();\n  var bucket = Math.floor(t.getTime() / 30000);\n\n  var doc = { _id: String(sid) + ':searchfriction:' + bucket, sid: sid, uid: uid, signal: 'search-friction', severity: severity, distinctProducts: distinct, evidence: evidence, _tsFallback: t };\n  if (topAT) doc.topic = { dimension: 'articleType', value: topAT };\n  return [doc];\n}",
+                "lang": "js"
+              }
+            }
+          }
+        },
+        {
+          "$unwind": "$signals"
+        },
+        {
+          "$replaceRoot": {
+            "newRoot": "$signals"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "$addFields": {
+      "ts": {
+        "$ifNull": [
+          "$_stream_meta.window.end",
+          "$_tsFallback"
+        ]
+      }
+    }
+  },
+  {
+    "$unset": [
+      "_tsFallback",
+      "_stream_meta"
+    ]
+  },
+  {
+    "$merge": {
+      "into": {
+        "coll": "session_signals",
+        "connectionName": "retail_customer_retention",
+        "db": "leafy_popup_store"
+      },
+      "on": "_id",
+      "whenMatched": "keepExisting",
+      "whenNotMatched": "insert"
+    }
+  }
+  ]
+}

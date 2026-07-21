@@ -1,0 +1,128 @@
+{
+  "name": "asp2_high_intent",
+  "pipeline": [
+    {
+    "$source": {
+      "coll": "events_ingest",
+      "config": {
+        "fullDocument": "updateLookup"
+      },
+      "connectionName": "retail_customer_retention",
+      "db": "leafy_popup_store",
+      "timeField": "$fullDocument.timestamp"
+    }
+  },
+  {
+    "$replaceRoot": {
+      "newRoot": "$fullDocument"
+    }
+  },
+  {
+    "$match": {
+      "timestamp": {
+        "$type": "date"
+      },
+      "tags.sessionId": {
+        "$type": "string"
+      },
+      "tags.userId": {
+        "$type": "string"
+      }
+    }
+  },
+  {
+    "$tumblingWindow": {
+      "allowedLateness": 0,
+      "boundary": "eventTime",
+      "idleTimeout": 0,
+      "interval": {
+        "size": 30,
+        "unit": "second"
+      },
+      "pipeline": [
+        {
+          "$group": {
+            "_id": "$tags.sessionId",
+            "sid": {
+              "$first": "$tags.sessionId"
+            },
+            "uid": {
+              "$first": "$tags.userId"
+            },
+            "lastTs": {
+              "$max": "$timestamp"
+            },
+            "cartProducts": {
+              "$addToSet": {
+                "$cond": [
+                  {
+                    "$eq": [
+                      "$tags.event",
+                      "add-to-cart"
+                    ]
+                  },
+                  "$metadata.productId",
+                  null
+                ]
+              }
+            }
+          }
+        },
+        {
+          "$project": {
+            "_id": 0,
+            "signals": {
+              "$function": {
+                "args": [
+                  "$sid",
+                  "$uid",
+                  "$cartProducts",
+                  "$lastTs"
+                ],
+                "body": "function(sid, uid, cartProducts, lastTs){\n  var pids = (Array.isArray(cartProducts) ? cartProducts : []).filter(function(x){ return x != null && x !== ''; });\n  if (pids.length === 0) return [];\n\n  var t = lastTs ? new Date(lastTs) : new Date();\n  var bucket = Math.floor(t.getTime() / 30000);\n\n  var out = [];\n  for (var i = 0; i < pids.length; i++){\n    var pid = String(pids[i]);\n    out.push({\n      _id: String(sid) + ':highintent:' + pid + ':' + bucket,\n      sid: sid,\n      uid: uid,\n      signal: 'high-intent',\n      severity: 'high',\n      evidence: 'add-to-cart occurred for product in the last 30 seconds',\n      productId: pid,\n      _tsFallback: t\n    });\n  }\n  return out;\n}",
+                "lang": "js"
+              }
+            }
+          }
+        },
+        {
+          "$unwind": "$signals"
+        },
+        {
+          "$replaceRoot": {
+            "newRoot": "$signals"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "$addFields": {
+      "ts": {
+        "$ifNull": [
+          "$_stream_meta.window.end",
+          "$_tsFallback"
+        ]
+      }
+    }
+  },
+  {
+    "$unset": [
+      "_tsFallback",
+      "_stream_meta"
+    ]
+  },
+  {
+    "$merge": {
+      "into": {
+        "coll": "session_signals",
+        "connectionName": "retail_customer_retention",
+        "db": "leafy_popup_store"
+      },
+      "on": "_id",
+      "whenMatched": "keepExisting",
+      "whenNotMatched": "insert"
+    }
+  }
+  ]
+}

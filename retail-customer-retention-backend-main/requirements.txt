@@ -1,0 +1,18 @@
+# Azure AI (OpenAI Responses API via Foundry endpoint)
+openai
+# Azure AI Foundry agent registration (setup_agents.py). Pinned to the version that
+# exposes PromptAgentDefinition / WorkflowAgentDefinition / MCPTool (and
+# OpenApiTool for the enriched agent's scoring tool). 2.0.x lacks OpenApiTool, which
+# silently drops score_churn from the enriched agent; the namespace also shifts
+# between releases, so pin exactly rather than float.
+azure-ai-projects==2.2.0
+# Azure credential support
+azure-identity
+aiohttp
+# MongoDB (direct connection for change stream only)
+pymongo
+# Web framework & server
+fastapi
+uvicorn[standard]
+# Utilities
+python-dotenv

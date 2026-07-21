@@ -1,0 +1,132 @@
+{
+  "name": "asp2_exit_risk",
+  "pipeline": [
+    {
+    "$source": {
+      "coll": "events_ingest",
+      "config": {
+        "fullDocument": "updateLookup"
+      },
+      "connectionName": "retail_customer_retention",
+      "db": "leafy_popup_store",
+      "timeField": "$fullDocument.timestamp"
+    }
+  },
+  {
+    "$replaceRoot": {
+      "newRoot": "$fullDocument"
+    }
+  },
+  {
+    "$match": {
+      "timestamp": {
+        "$type": "date"
+      },
+      "tags.sessionId": {
+        "$type": "string"
+      },
+      "tags.userId": {
+        "$type": "string"
+      }
+    }
+  },
+  {
+    "$tumblingWindow": {
+      "allowedLateness": 0,
+      "boundary": "eventTime",
+      "idleTimeout": 0,
+      "interval": {
+        "size": 30,
+        "unit": "second"
+      },
+      "pipeline": [
+        {
+          "$group": {
+            "_id": "$tags.sessionId",
+            "sid": {
+              "$first": "$tags.sessionId"
+            },
+            "uid": {
+              "$first": "$tags.userId"
+            },
+            "exitCount": {
+              "$sum": {
+                "$cond": [
+                  {
+                    "$eq": [
+                      "$tags.event",
+                      "exit-risk"
+                    ]
+                  },
+                  1,
+                  0
+                ]
+              }
+            },
+            "lastTs": {
+              "$max": "$timestamp"
+            }
+          }
+        },
+        {
+          "$project": {
+            "_id": 0,
+            "signalDoc": {
+              "$function": {
+                "args": [
+                  "$sid",
+                  "$uid",
+                  "$exitCount",
+                  "$lastTs"
+                ],
+                "body": "function(sid, uid, exitCount, lastTs){\n  var n = (typeof exitCount === 'number') ? exitCount : 0;\n  if (n <= 0) return null;\n\n  var severity = 'low';\n  if (n === 2) severity = 'medium';\n  if (n >= 3) severity = 'high';\n\n  var evidence = 'Early exit signals detected in the last 30 seconds.';\n  if (n === 2) evidence = 'Repeated exit signals detected in the last 30 seconds.';\n  if (n >= 3) evidence = 'Strong exit intent detected in the last 30 seconds.';\n\n  var t = lastTs ? new Date(lastTs) : new Date();\n  var bucket = Math.floor(t.getTime() / 30000);\n\n  return { _id: String(sid) + ':exitrisk:' + bucket, sid: sid, uid: uid, signal: 'exit-risk', severity: severity, evidence: evidence, _tsFallback: t };\n}",
+                "lang": "js"
+              }
+            }
+          }
+        },
+        {
+          "$match": {
+            "signalDoc": {
+              "$ne": null
+            }
+          }
+        },
+        {
+          "$replaceRoot": {
+            "newRoot": "$signalDoc"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "$addFields": {
+      "ts": {
+        "$ifNull": [
+          "$_stream_meta.window.end",
+          "$_tsFallback"
+        ]
+      }
+    }
+  },
+  {
+    "$unset": [
+      "_tsFallback",
+      "_stream_meta"
+    ]
+  },
+  {
+    "$merge": {
+      "into": {
+        "coll": "session_signals",
+        "connectionName": "retail_customer_retention",
+        "db": "leafy_popup_store"
+      },
+      "on": "_id",
+      "whenMatched": "keepExisting",
+      "whenNotMatched": "insert"
+    }
+  }
+  ]
+}

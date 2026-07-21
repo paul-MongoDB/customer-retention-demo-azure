@@ -1,0 +1,449 @@
+{
+  "name": "asp1_session_state_builder",
+  "options": {
+    "dlq": {
+      "connectionName": "retail_customer_retention",
+      "db": "leafy_popup_store",
+      "coll": "dlq"
+    }
+  },
+  "pipeline": [
+    {
+    "$source": {
+      "coll": "events_ingest",
+      "config": {
+        "fullDocument": "updateLookup"
+      },
+      "connectionName": "retail_customer_retention",
+      "db": "leafy_popup_store",
+      "timeField": "$fullDocument.timestamp"
+    }
+  },
+  {
+    "$replaceRoot": {
+      "newRoot": "$fullDocument"
+    }
+  },
+  {
+    "$validate": {
+      "validationAction": "dlq",
+      "validator": {
+        "$and": [
+          {
+            "tags.sessionId": {
+              "$type": "string"
+            }
+          },
+          {
+            "tags.userId": {
+              "$type": "string"
+            }
+          },
+          {
+            "timestamp": {
+              "$type": "date"
+            }
+          },
+          {
+            "tags.event": {
+              "$in": [
+                "heartbeat",
+                "search",
+                "view-product",
+                "add-to-cart",
+                "exit-risk"
+              ]
+            }
+          },
+          {
+            "$or": [
+              {
+                "tags.event": {
+                  "$in": [
+                    "heartbeat",
+                    "exit-risk"
+                  ]
+                }
+              },
+              {
+                "$and": [
+                  {
+                    "metadata.productId": {
+                      "$type": "string"
+                    }
+                  },
+                  {
+                    "metadata.articleType": {
+                      "$type": "string"
+                    }
+                  },
+                  {
+                    "metadata.subCategory": {
+                      "$type": "string"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "$or": [
+              {
+                "tags.event": {
+                  "$ne": "search"
+                }
+              },
+              {
+                "metadata.query": {
+                  "$type": "string"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "$addFields": {
+      "eventWeight": {
+        "$switch": {
+          "branches": [
+            {
+              "case": {
+                "$eq": [
+                  "$tags.event",
+                  "search"
+                ]
+              },
+              "then": 1
+            },
+            {
+              "case": {
+                "$eq": [
+                  "$tags.event",
+                  "view-product"
+                ]
+              },
+              "then": 3
+            },
+            {
+              "case": {
+                "$eq": [
+                  "$tags.event",
+                  "add-to-cart"
+                ]
+              },
+              "then": 7
+            }
+          ],
+          "default": 0
+        }
+      },
+      "_eventPriority": {
+        "$cond": [
+          {
+            "$eq": [
+              "$tags.event",
+              "exit-risk"
+            ]
+          },
+          1,
+          0
+        ]
+      }
+    }
+  },
+  {
+    "$tumblingWindow": {
+      "allowedLateness": 0,
+      "boundary": "eventTime",
+      "interval": {
+        "size": 10,
+        "unit": "second"
+      },
+      "pipeline": [
+        {
+          "$group": {
+            "_id": "$tags.sessionId",
+            "eventsInWindow": {
+              "$push": {
+                "articleType": "$metadata.articleType",
+                "event": "$tags.event",
+                "productId": "$metadata.productId",
+                "subCategory": "$metadata.subCategory",
+                "weight": "$eventWeight"
+              }
+            },
+            "firstSeen": {
+              "$min": "$timestamp"
+            },
+            "lastEvent": {
+              "$top": {
+                "output": {
+                  "event": "$tags.event",
+                  "ts": "$timestamp"
+                },
+                "sortBy": {
+                  "_eventPriority": -1,
+                  "timestamp": -1
+                }
+              }
+            },
+            "lastSeen": {
+              "$max": "$timestamp"
+            },
+            "searchQueriesRaw": {
+              "$push": {
+                "$cond": [
+                  {
+                    "$eq": [
+                      "$tags.event",
+                      "search"
+                    ]
+                  },
+                  "$metadata.query",
+                  null
+                ]
+              }
+            },
+            "sessionId": {
+              "$first": "$tags.sessionId"
+            },
+            "userId": {
+              "$first": "$tags.userId"
+            }
+          }
+        },
+        {
+          "$addFields": {
+            "searchHistoryDelta": {
+              "$filter": {
+                "as": "q",
+                "cond": {
+                  "$and": [
+                    {
+                      "$ne": [
+                        "$$q",
+                        null
+                      ]
+                    },
+                    {
+                      "$ne": [
+                        "$$q",
+                        ""
+                      ]
+                    }
+                  ]
+                },
+                "input": "$searchQueriesRaw"
+              }
+            }
+          }
+        },
+        {
+          "$addFields": {
+            "_computed": {
+              "$function": {
+                "args": [
+                  "$eventsInWindow"
+                ],
+                "body": "function(events) {\n  const counts = { 'heartbeat': 0, 'search': 0, 'view-product': 0, 'add-to-cart': 0, 'exit-risk': 0 };\n\n  const productsById = Object.create(null);\n  const articlesByType = Object.create(null);\n  const subCatsByName = Object.create(null);\n\n  let productWeightTotal = 0;\n  let articleTypeWeightTotal = 0;\n  let subCategoryWeightTotal = 0;\n\n  const arr = events || [];\n  for (let i = 0; i < arr.length; i++) {\n    const e = arr[i] || {};\n    const ev = e.event;\n\n    if (ev && Object.prototype.hasOwnProperty.call(counts, ev)) {\n      counts[ev] += 1;\n    }\n\n    const w = (typeof e.weight === 'number') ? e.weight : 0;\n    if (w <= 0) continue;\n\n    const pid = e.productId;\n    const at = e.articleType;\n    const sc = e.subCategory;\n\n    if (pid) {\n      if (!productsById[pid]) {\n        productsById[pid] = { productId: pid, searchCount: 0, viewCount: 0, addToCartCount: 0, weight: 0 };\n      }\n      const r = productsById[pid];\n      if (ev === 'search') r.searchCount += 1;\n      else if (ev === 'view-product') r.viewCount += 1;\n      else if (ev === 'add-to-cart') r.addToCartCount += 1;\n      r.weight += w;\n      productWeightTotal += w;\n    }\n\n    if (at) {\n      if (!articlesByType[at]) {\n        articlesByType[at] = { articleType: at, searchCount: 0, viewCount: 0, addToCartCount: 0, weight: 0 };\n      }\n      const r2 = articlesByType[at];\n      if (ev === 'search') r2.searchCount += 1;\n      else if (ev === 'view-product') r2.viewCount += 1;\n      else if (ev === 'add-to-cart') r2.addToCartCount += 1;\n      r2.weight += w;\n      articleTypeWeightTotal += w;\n    }\n\n    if (sc) {\n      if (!subCatsByName[sc]) {\n        subCatsByName[sc] = { subCategory: sc, searchCount: 0, viewCount: 0, addToCartCount: 0, weight: 0 };\n      }\n      const r3 = subCatsByName[sc];\n      if (ev === 'search') r3.searchCount += 1;\n      else if (ev === 'view-product') r3.viewCount += 1;\n      else if (ev === 'add-to-cart') r3.addToCartCount += 1;\n      r3.weight += w;\n      subCategoryWeightTotal += w;\n    }\n  }\n\n  const products = [];\n  for (const k in productsById) {\n    if (!Object.prototype.hasOwnProperty.call(productsById, k)) continue;\n    products.push(productsById[k]);\n  }\n\n  const articleTypes = [];\n  for (const k in articlesByType) {\n    if (!Object.prototype.hasOwnProperty.call(articlesByType, k)) continue;\n    articleTypes.push(articlesByType[k]);\n  }\n\n  const subCategories = [];\n  for (const k in subCatsByName) {\n    if (!Object.prototype.hasOwnProperty.call(subCatsByName, k)) continue;\n    subCategories.push(subCatsByName[k]);\n  }\n\n  for (let i = 0; i < products.length; i++) {\n    const x = products[i];\n    x.focus = productWeightTotal > 0 ? (x.weight / productWeightTotal) : 0;\n  }\n\n  for (let i = 0; i < articleTypes.length; i++) {\n    const x = articleTypes[i];\n    x.focus = articleTypeWeightTotal > 0 ? (x.weight / articleTypeWeightTotal) : 0;\n  }\n\n  for (let i = 0; i < subCategories.length; i++) {\n    const x = subCategories[i];\n    x.focus = subCategoryWeightTotal > 0 ? (x.weight / subCategoryWeightTotal) : 0;\n  }\n\n  return {\n    eventCounts: counts,\n    intent: {\n      products,\n      articleTypes,\n      subCategories,\n      dimensionTotals: { productWeightTotal, articleTypeWeightTotal, subCategoryWeightTotal }\n    }\n  };\n}",
+                "lang": "js"
+              }
+            }
+          }
+        },
+        {
+          "$addFields": {
+            "last10s": {
+              "intent": "$_computed.intent",
+              "lastEvent": "$lastEvent",
+              "window": "$_stream_meta.window"
+            },
+            "sessionTotalsDelta": {
+              "eventCounts": "$_computed.eventCounts",
+              "windowCount": 1
+            }
+          }
+        },
+        {
+          "$unset": [
+            "_id",
+            "_stream_meta",
+            "eventsInWindow",
+            "searchQueriesRaw",
+            "_computed"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "$unset": [
+      "_stream_meta"
+    ]
+  },
+  {
+    "$addFields": {
+      "searchHistory": "$searchHistoryDelta",
+      "sessionTotals": "$sessionTotalsDelta"
+    }
+  },
+  {
+    "$unset": [
+      "sessionTotalsDelta",
+      "searchHistoryDelta"
+    ]
+  },
+  {
+    "$merge": {
+      "into": {
+        "coll": "session_state",
+        "connectionName": "retail_customer_retention",
+        "db": "leafy_popup_store"
+      },
+      "on": "sessionId",
+      "whenMatched": [
+        {
+          "$set": {
+            "firstSeen": {
+              "$min": [
+                "$firstSeen",
+                "$$new.firstSeen"
+              ]
+            },
+            "last10s": "$$new.last10s",
+            "lastEvent": "$$new.lastEvent",
+            "lastSeen": {
+              "$max": [
+                "$lastSeen",
+                "$$new.lastSeen"
+              ]
+            },
+            "searchHistory": {
+              "$concatArrays": [
+                {
+                  "$ifNull": [
+                    "$searchHistory",
+                    []
+                  ]
+                },
+                {
+                  "$ifNull": [
+                    "$$new.searchHistory",
+                    []
+                  ]
+                }
+              ]
+            },
+            "sessionId": "$$new.sessionId",
+            "sessionTotals": {
+              "eventCounts": {
+                "add-to-cart": {
+                  "$add": [
+                    {
+                      "$ifNull": [
+                        "$sessionTotals.eventCounts.add-to-cart",
+                        0
+                      ]
+                    },
+                    {
+                      "$ifNull": [
+                        "$$new.sessionTotals.eventCounts.add-to-cart",
+                        0
+                      ]
+                    }
+                  ]
+                },
+                "exit-risk": {
+                  "$add": [
+                    {
+                      "$ifNull": [
+                        "$sessionTotals.eventCounts.exit-risk",
+                        0
+                      ]
+                    },
+                    {
+                      "$ifNull": [
+                        "$$new.sessionTotals.eventCounts.exit-risk",
+                        0
+                      ]
+                    }
+                  ]
+                },
+                "heartbeat": {
+                  "$add": [
+                    {
+                      "$ifNull": [
+                        "$sessionTotals.eventCounts.heartbeat",
+                        0
+                      ]
+                    },
+                    {
+                      "$ifNull": [
+                        "$$new.sessionTotals.eventCounts.heartbeat",
+                        0
+                      ]
+                    }
+                  ]
+                },
+                "search": {
+                  "$add": [
+                    {
+                      "$ifNull": [
+                        "$sessionTotals.eventCounts.search",
+                        0
+                      ]
+                    },
+                    {
+                      "$ifNull": [
+                        "$$new.sessionTotals.eventCounts.search",
+                        0
+                      ]
+                    }
+                  ]
+                },
+                "view-product": {
+                  "$add": [
+                    {
+                      "$ifNull": [
+                        "$sessionTotals.eventCounts.view-product",
+                        0
+                      ]
+                    },
+                    {
+                      "$ifNull": [
+                        "$$new.sessionTotals.eventCounts.view-product",
+                        0
+                      ]
+                    }
+                  ]
+                }
+              },
+              "windowCount": {
+                "$add": [
+                  {
+                    "$ifNull": [
+                      "$sessionTotals.windowCount",
+                      0
+                    ]
+                  },
+                  {
+                    "$ifNull": [
+                      "$$new.sessionTotals.windowCount",
+                      0
+                    ]
+                  }
+                ]
+              }
+            },
+            "userId": "$$new.userId"
+          }
+        }
+      ],
+      "whenNotMatched": "insert"
+    }
+  }
+  ]
+}

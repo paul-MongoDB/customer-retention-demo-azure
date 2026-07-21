@@ -1,0 +1,347 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.39.26.7824",
+      "templateHash": "14658750575474884379"
+    }
+  },
+  "parameters": {
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Azure region for all resources"
+      }
+    },
+    "environmentName": {
+      "type": "string",
+      "metadata": {
+        "description": "Prefix used to name all resources (e.g. \"leafy-demo\")"
+      }
+    },
+    "containerEnvId": {
+      "type": "string",
+      "metadata": {
+        "description": "Container Apps Environment resource ID (output from main.bicep)"
+      }
+    },
+    "acrLoginServer": {
+      "type": "string",
+      "metadata": {
+        "description": "ACR login server (output from main.bicep, e.g. \"leafydemoacr.azurecr.io\")"
+      }
+    },
+    "acrName": {
+      "type": "string",
+      "metadata": {
+        "description": "ACR name without domain (output from main.bicep)"
+      }
+    },
+    "managedIdentityId": {
+      "type": "string",
+      "metadata": {
+        "description": "Managed Identity resource ID (output from main.bicep)"
+      }
+    },
+    "managedIdentityClientId": {
+      "type": "string",
+      "metadata": {
+        "description": "Managed Identity client ID (output from main.bicep)"
+      }
+    },
+    "mongodbUri": {
+      "type": "securestring",
+      "metadata": {
+        "description": "MongoDB Atlas connection string"
+      }
+    },
+    "azureAiProjectEndpoint": {
+      "type": "string",
+      "metadata": {
+        "description": "Microsoft Foundry project endpoint"
+      }
+    },
+    "azureAiModelDeploymentName": {
+      "type": "string",
+      "metadata": {
+        "description": "Model deployment name in Microsoft Foundry"
+      }
+    },
+    "databaseName": {
+      "type": "string",
+      "metadata": {
+        "description": "Database name used by the backend and frontend"
+      }
+    },
+    "voyageApiKey": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Voyage AI API key for embeddings (starts with pa-)"
+      }
+    },
+    "mcpReadOnlyMode": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Enable MCP server read-only mode (set false if agents need to write NBAs)"
+      }
+    }
+  },
+  "variables": {
+    "prefix": "[parameters('environmentName')]",
+    "mcpServerAppName": "[format('{0}-mcp-server', variables('prefix'))]",
+    "backendAppName": "[format('{0}-backend', variables('prefix'))]",
+    "frontendAppName": "[format('{0}-frontend', variables('prefix'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.App/containerApps",
+      "apiVersion": "2024-03-01",
+      "name": "[variables('mcpServerAppName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "managedEnvironmentId": "[parameters('containerEnvId')]",
+        "configuration": {
+          "ingress": {
+            "external": true,
+            "targetPort": 8080,
+            "transport": "auto"
+          },
+          "secrets": [
+            {
+              "name": "mdb-connection-string",
+              "value": "[parameters('mongodbUri')]"
+            },
+            {
+              "name": "voyage-api-key",
+              "value": "[parameters('voyageApiKey')]"
+            }
+          ]
+        },
+        "template": {
+          "containers": [
+            {
+              "name": "mcp-server",
+              "image": "mongodb/mongodb-mcp-server:latest",
+              "resources": {
+                "cpu": "[json('0.5')]",
+                "memory": "1Gi"
+              },
+              "env": [
+                {
+                  "name": "MDB_MCP_CONNECTION_STRING",
+                  "secretRef": "mdb-connection-string"
+                },
+                {
+                  "name": "MDB_MCP_VOYAGE_API_KEY",
+                  "secretRef": "voyage-api-key"
+                },
+                {
+                  "name": "MDB_MCP_READ_ONLY",
+                  "value": "[if(parameters('mcpReadOnlyMode'), 'true', 'false')]"
+                },
+                {
+                  "name": "MDB_MCP_HTTP_PORT",
+                  "value": "8080"
+                },
+                {
+                  "name": "MDB_MCP_HTTP_HOST",
+                  "value": "::"
+                },
+                {
+                  "name": "MDB_MCP_TRANSPORT",
+                  "value": "http"
+                },
+                {
+                  "name": "MDB_MCP_HTTP_AUTH_MODE",
+                  "value": "none"
+                },
+                {
+                  "name": "MDB_MCP_PREVIEW_FEATURES",
+                  "value": "search"
+                }
+              ]
+            }
+          ],
+          "scale": {
+            "minReplicas": 1,
+            "maxReplicas": 1
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.App/containerApps",
+      "apiVersion": "2024-03-01",
+      "name": "[variables('backendAppName')]",
+      "location": "[parameters('location')]",
+      "identity": {
+        "type": "UserAssigned",
+        "userAssignedIdentities": {
+          "[format('{0}', parameters('managedIdentityId'))]": {}
+        }
+      },
+      "properties": {
+        "managedEnvironmentId": "[parameters('containerEnvId')]",
+        "configuration": {
+          "ingress": {
+            "external": true,
+            "targetPort": 8080,
+            "transport": "auto"
+          },
+          "registries": [
+            {
+              "server": "[parameters('acrLoginServer')]",
+              "username": "[listCredentials(resourceId('Microsoft.ContainerRegistry/registries', parameters('acrName')), '2023-07-01').username]",
+              "passwordSecretRef": "acr-password"
+            }
+          ],
+          "secrets": [
+            {
+              "name": "acr-password",
+              "value": "[listCredentials(resourceId('Microsoft.ContainerRegistry/registries', parameters('acrName')), '2023-07-01').passwords[0].value]"
+            },
+            {
+              "name": "mongodb-uri",
+              "value": "[parameters('mongodbUri')]"
+            }
+          ]
+        },
+        "template": {
+          "containers": [
+            {
+              "name": "backend",
+              "image": "mcr.microsoft.com/k8se/quickstart:latest",
+              "resources": {
+                "cpu": "[json('0.5')]",
+                "memory": "1Gi"
+              },
+              "env": [
+                {
+                  "name": "MONGODB_URI",
+                  "secretRef": "mongodb-uri"
+                },
+                {
+                  "name": "MCP_SERVER_URL",
+                  "value": "[format('https://{0}/mcp', reference(resourceId('Microsoft.App/containerApps', variables('mcpServerAppName')), '2024-03-01').configuration.ingress.fqdn)]"
+                },
+                {
+                  "name": "AZURE_AI_PROJECT_ENDPOINT",
+                  "value": "[parameters('azureAiProjectEndpoint')]"
+                },
+                {
+                  "name": "AZURE_AI_MODEL_DEPLOYMENT_NAME",
+                  "value": "[parameters('azureAiModelDeploymentName')]"
+                },
+                {
+                  "name": "AZURE_CLIENT_ID",
+                  "value": "[parameters('managedIdentityClientId')]"
+                },
+                {
+                  "name": "DATABASE_NAME",
+                  "value": "[parameters('databaseName')]"
+                }
+              ]
+            }
+          ],
+          "scale": {
+            "minReplicas": 1,
+            "maxReplicas": 3
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.App/containerApps', variables('mcpServerAppName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.App/containerApps",
+      "apiVersion": "2024-03-01",
+      "name": "[variables('frontendAppName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "managedEnvironmentId": "[parameters('containerEnvId')]",
+        "configuration": {
+          "ingress": {
+            "external": true,
+            "targetPort": 8080,
+            "transport": "auto"
+          },
+          "registries": [
+            {
+              "server": "[parameters('acrLoginServer')]",
+              "username": "[listCredentials(resourceId('Microsoft.ContainerRegistry/registries', parameters('acrName')), '2023-07-01').username]",
+              "passwordSecretRef": "acr-password"
+            }
+          ],
+          "secrets": [
+            {
+              "name": "acr-password",
+              "value": "[listCredentials(resourceId('Microsoft.ContainerRegistry/registries', parameters('acrName')), '2023-07-01').passwords[0].value]"
+            },
+            {
+              "name": "mongodb-uri",
+              "value": "[parameters('mongodbUri')]"
+            }
+          ]
+        },
+        "template": {
+          "containers": [
+            {
+              "name": "frontend",
+              "image": "mcr.microsoft.com/k8se/quickstart:latest",
+              "resources": {
+                "cpu": "[json('0.5')]",
+                "memory": "1Gi"
+              },
+              "env": [
+                {
+                  "name": "MONGODB_URI",
+                  "secretRef": "mongodb-uri"
+                },
+                {
+                  "name": "DATABASE_NAME",
+                  "value": "[parameters('databaseName')]"
+                },
+                {
+                  "name": "NODE_ENV",
+                  "value": "production"
+                }
+              ]
+            }
+          ],
+          "scale": {
+            "minReplicas": 1,
+            "maxReplicas": 3
+          }
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "mcpServerFqdn": {
+      "type": "string",
+      "metadata": {
+        "description": "MCP Server FQDN"
+      },
+      "value": "[coalesce(tryGet(reference(resourceId('Microsoft.App/containerApps', variables('mcpServerAppName')), '2024-03-01').configuration.ingress, 'fqdn'), '')]"
+    },
+    "backendFqdn": {
+      "type": "string",
+      "metadata": {
+        "description": "Backend app FQDN"
+      },
+      "value": "[coalesce(tryGet(reference(resourceId('Microsoft.App/containerApps', variables('backendAppName')), '2024-03-01').configuration.ingress, 'fqdn'), '')]"
+    },
+    "frontendFqdn": {
+      "type": "string",
+      "metadata": {
+        "description": "Frontend app FQDN"
+      },
+      "value": "[coalesce(tryGet(reference(resourceId('Microsoft.App/containerApps', variables('frontendAppName')), '2024-03-01').configuration.ingress, 'fqdn'), '')]"
+    }
+  }
+}
